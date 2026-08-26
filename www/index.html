@@ -1,1 +1,311 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stock en Vivo</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        padding: 10px;
+    }
+    .container {
+        max-width: 900px;
+        margin: 0 auto;
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        overflow: hidden;
+    }
+    .header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 20px;
+        text-align: center;
+    }
+    .header h1 { font-size: 24px; margin-bottom: 5px; }
+    .header p { opacity: 0.9; font-size: 13px; }
+    .body { padding: 20px; }
+    .setup { background: #f9f9f9; padding: 20px; border-radius: 8px; }
+    .setup label { display: block; margin-bottom: 8px; font-weight: bold; color: #444; }
+    .setup input[type="text"] {
+        width: 100%; font-family: monospace; font-size: 12px; padding: 10px;
+        border: 1px solid #ccc; border-radius: 6px; margin-bottom: 10px;
+    }
+    .btn {
+        padding: 10px 18px; border: none; border-radius: 6px; cursor: pointer;
+        font-size: 14px; font-weight: bold; background: #667eea; color: white;
+    }
+    .btn:hover { opacity: 0.9; }
+    .btn-secundario { background: #e0e0e0; color: #444; }
+    .barra-superior { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 15px; }
+    .estado { font-weight: bold; }
+    .btn-refrescar {
+        border: none; background: #f0f0f0; color: #555; border-radius: 6px;
+        padding: 8px 12px; font-size: 13px; cursor: pointer; white-space: nowrap;
+    }
+    .btn-refrescar:active { background: #e0e0e0; }
+    .buscador {
+        width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px;
+        margin-bottom: 15px; font-size: 14px;
+    }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    th, td { padding: 10px; border-bottom: 1px solid #eee; text-align: left; font-size: 14px; word-break: break-word; }
+    th { background: #f5f5f5; position: sticky; top: 0; }
+    th:last-child, td:last-child { text-align: right; }
+    .stock-bajo { color: #c0392b; font-weight: bold; }
+    .stock-ok { color: #27ae60; font-weight: bold; }
+    .actualizado { color: #888; font-size: 12px; margin-top: 15px; text-align: center; }
+    .sin-datos { text-align: center; color: #888; padding: 40px 0; }
+    .cambiar { text-align: center; margin-top: 15px; }
+    .cambiar a { color: #667eea; font-size: 13px; cursor: pointer; text-decoration: underline; }
 
+    @media (max-width: 480px) {
+        body { padding: 5px; }
+        .header { padding: 15px 10px; }
+        .header h1 { font-size: 20px; }
+        .header p { font-size: 12px; }
+        .body { padding: 12px; }
+        th, td { padding: 8px 6px; font-size: 13px; }
+    }
+</style>
+</head>
+<body>
+<div id="errorFatal" style="display:none; background:#c0392b; color:white; padding:16px; font-family:monospace; font-size:13px; white-space:pre-wrap; word-break:break-word;"></div>
+<div class="container">
+    <div class="header">
+        <h1>📦 Stock en Vivo</h1>
+        <p>Vista en tiempo real, sin necesidad de instalar nada</p>
+    </div>
+    <div class="body">
+        <div id="setup" class="setup" style="display:none;">
+            <label for="urlInput">Pega la URL del archivo JSON de tu inventario en GitHub (raw.githubusercontent.com)</label>
+            <input type="text" id="urlInput" placeholder="https://raw.githubusercontent.com/usuario/repo/main/stock.json">
+            <button class="btn" onclick="conectar()">🔌 Conectar</button>
+            <div id="mensajeSetup" style="margin-top:10px;"></div>
+        </div>
+
+        <div id="vista" style="display:none;">
+            <div class="barra-superior">
+                <p id="estado" class="estado">🟡 Cargando...</p>
+                <button class="btn-refrescar" onclick="refrescarAhora()">🔄 Actualizar</button>
+            </div>
+            <input type="text" id="buscador" class="buscador" placeholder="🔍 Buscar producto o SKU..." oninput="renderizarTabla()">
+            <div id="contenedorTabla"></div>
+            <p id="actualizado" class="actualizado"></p>
+            <div class="cambiar"><a onclick="cambiarConexion()">Conectar a otro inventario</a></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Si algo revienta antes de dibujar la app, esto lo muestra en pantalla
+    // en vez de dejar la pantalla en blanco sin ninguna pista.
+    function mostrarErrorFatal(mensaje) {
+        const caja = document.getElementById('errorFatal');
+        if(!caja) return;
+        caja.style.display = 'block';
+        caja.textContent = '⚠️ Error: ' + mensaje;
+    }
+    window.addEventListener('error', function(e) {
+        mostrarErrorFatal((e.message || 'error desconocido') + (e.filename ? ' (' + e.filename + ':' + e.lineno + ')' : ''));
+    });
+    window.addEventListener('unhandledrejection', function(e) {
+        mostrarErrorFatal('promesa rechazada: ' + (e.reason && e.reason.message ? e.reason.message : e.reason));
+    });
+</script>
+<script>
+
+    // URL por defecto: el JSON de stock que la app de inventario sube a GitHub.
+    // Se puede cambiar desde "Conectar a otro inventario" si algún día cambia de repo.
+    const URL_POR_DEFECTO = 'https://raw.githubusercontent.com/josecarlosfernandezhung-droid/inventario-datos-sync./main/stock.json';
+
+    const CACHE_KEY = 'visorStockCache';
+    const URL_KEY = 'visorStockGithubUrl';
+    const INTERVALO_REFRESCO_MS = 30000; // 30s — de sobra, GitHub cachea el raw ~1-5min igual
+
+    let urlActual = null;
+    let ultimosDatos = null;
+    let intervaloId = null;
+
+    function guardarCache(datos) {
+        try {
+            localStorage.setItem(CACHE_KEY, JSON.stringify(datos));
+        } catch(e) { /* si no cabe en localStorage, seguimos igual sin romper nada */ }
+    }
+
+    function leerCache() {
+        try {
+            const raw = localStorage.getItem(CACHE_KEY);
+            return raw ? JSON.parse(raw) : null;
+        } catch(e) { return null; }
+    }
+
+    window.addEventListener('DOMContentLoaded', function() {
+        // Prioridad: URL en el hash (#url-encoded) > URL guardada > la de por defecto
+        const hash = window.location.hash.replace('#', '');
+        const guardada = localStorage.getItem(URL_KEY);
+
+        if(hash) {
+            try {
+                const decodificada = decodeURIComponent(hash);
+                iniciarConexion(decodificada);
+            } catch(e) {
+                iniciarConexion(guardada || URL_POR_DEFECTO);
+            }
+        } else if(guardada) {
+            iniciarConexion(guardada);
+        } else {
+            iniciarConexion(URL_POR_DEFECTO);
+        }
+    });
+
+    function conectar() {
+        const url = document.getElementById('urlInput').value.trim();
+        if(!url) {
+            document.getElementById('mensajeSetup').innerHTML = '<span style="color:#c0392b;">Pega primero la URL del archivo JSON.</span>';
+            return;
+        }
+        if(!url.startsWith('http')) {
+            document.getElementById('mensajeSetup').innerHTML = '<span style="color:#c0392b;">Eso no parece una URL válida.</span>';
+            return;
+        }
+        localStorage.setItem(URL_KEY, url);
+        iniciarConexion(url);
+    }
+
+    function mostrarSinConexion(motivo) {
+        const cache = leerCache();
+        if(cache) {
+            ultimosDatos = cache;
+            renderizarTabla();
+            document.getElementById('estado').textContent = '🟠 Sin conexión — mostrando últimos datos guardados';
+        } else {
+            document.getElementById('estado').textContent = '🔴 ' + motivo;
+        }
+        document.getElementById('estado').style.color = '#c0392b';
+    }
+
+    function iniciarConexion(url) {
+        urlActual = url;
+        document.getElementById('setup').style.display = 'none';
+        document.getElementById('vista').style.display = 'block';
+
+        // Mientras carga (o si no hay internet), mostramos de una vez lo último guardado
+        const cache = leerCache();
+        if(cache) {
+            ultimosDatos = cache;
+            renderizarTabla();
+        }
+
+        cargarDatos(true);
+
+        instalarListenersConexion();
+
+        if(intervaloId) clearInterval(intervaloId);
+        intervaloId = setInterval(() => cargarDatos(false), INTERVALO_REFRESCO_MS);
+    }
+
+    function refrescarAhora() {
+        document.getElementById('estado').textContent = '🟡 Actualizando...';
+        document.getElementById('estado').style.color = '#b8860b';
+        cargarDatos(true);
+    }
+
+    async function cargarDatos(mostrarCargando) {
+        if(!urlActual) return;
+
+        if(!navigator.onLine) {
+            mostrarSinConexion('Sin internet en este momento.');
+            return;
+        }
+
+        if(mostrarCargando) {
+            document.getElementById('estado').textContent = '🟡 Conectando... (puede tardar según tu conexión)';
+            document.getElementById('estado').style.color = '#b8860b';
+        }
+
+        try {
+            // Se agrega un parámetro con la hora para evitar que el navegador/CDN
+            // sirva una copia vieja en caché cuando el usuario pide actualizar.
+            const separador = urlActual.includes('?') ? '&' : '?';
+            const respuesta = await fetch(urlActual + separador + 't=' + Date.now(), { cache: 'no-store' });
+
+            if(!respuesta.ok) {
+                mostrarSinConexion('No se pudo leer el archivo (error ' + respuesta.status + ').');
+                return;
+            }
+
+            const datos = await respuesta.json();
+            ultimosDatos = datos;
+            guardarCache(datos);
+            document.getElementById('estado').textContent = '🟢 Conectado — datos actualizados';
+            document.getElementById('estado').style.color = '#2e7d32';
+            renderizarTabla();
+        } catch(e) {
+            mostrarSinConexion('No se pudo conectar: ' + e.message);
+        }
+    }
+
+    let listenersInstalados = false;
+    function instalarListenersConexion() {
+        // Solo se instalan una vez, para no duplicar el evento en cada reconexión
+        if(listenersInstalados) return;
+        listenersInstalados = true;
+        window.addEventListener('offline', function() {
+            mostrarSinConexion('Se perdió la conexión a internet.');
+        });
+        window.addEventListener('online', function() {
+            document.getElementById('estado').textContent = '🟡 Conexión recuperada, actualizando...';
+            document.getElementById('estado').style.color = '#b8860b';
+            cargarDatos(true);
+        });
+    }
+
+    function renderizarTabla() {
+        const cont = document.getElementById('contenedorTabla');
+        if(!ultimosDatos || !ultimosDatos.productos || ultimosDatos.productos.length === 0) {
+            cont.innerHTML = '<p class="sin-datos">Todavía no hay datos sincronizados desde la app de inventario.</p>';
+            return;
+        }
+        const filtro = (document.getElementById('buscador').value || '').trim().toLowerCase();
+        const productos = ultimosDatos.productos
+            .filter(p => p.stock > 0)
+            .filter(p => !filtro || p.nombre.toLowerCase().includes(filtro) || (p.sku || '').toLowerCase().includes(filtro))
+            .sort((a, b) => a.nombre.localeCompare(b.nombre));
+
+        let html;
+        if(productos.length === 0) {
+            html = filtro
+                ? '<p class="sin-datos">Ningún producto disponible coincide con la búsqueda.</p>'
+                : '<p class="sin-datos">No hay productos con existencia en este momento.</p>';
+        } else {
+            html = '<table><thead><tr><th>Producto</th><th>SKU</th><th>Stock</th></tr></thead><tbody>';
+            productos.forEach(p => {
+                const claseStock = p.stock <= 10 ? 'stock-bajo' : 'stock-ok';
+                html += `<tr><td>${p.nombre}</td><td>${p.sku || '-'}</td><td class="${claseStock}">${p.stock} ${p.unidad || ''}</td></tr>`;
+            });
+            html += '</tbody></table>';
+        }
+        cont.innerHTML = html;
+
+        if(ultimosDatos.actualizado) {
+            const fecha = new Date(ultimosDatos.actualizado);
+            document.getElementById('actualizado').textContent = 'Última actualización: ' + fecha.toLocaleString('es-ES');
+        }
+    }
+
+    function cambiarConexion() {
+        if(intervaloId) clearInterval(intervaloId);
+        localStorage.removeItem(URL_KEY);
+        localStorage.removeItem(CACHE_KEY);
+        document.getElementById('vista').style.display = 'none';
+        document.getElementById('urlInput').value = '';
+        document.getElementById('setup').style.display = 'block';
+    }
+</script>
+</body>
+</html>
