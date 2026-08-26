@@ -1,1 +1,51 @@
+name: Compilar APK — Visor de Stock
 
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Configurar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Instalar dependencias
+        run: npm install
+
+      - name: Agregar plataforma Android (solo si no existe todavía)
+        run: |
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
+
+      - name: Sincronizar el visor (www/) con Android
+        run: npx cap sync android
+
+      - name: Generar íconos desde resources/
+        run: npx capacitor-assets generate --iconBackgroundSource resources/icon-background-1024.png --iconForegroundSource resources/icon-foreground-1024.png
+
+      - name: Compilar APK (debug)
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Subir APK como artifact descargable
+        uses: actions/upload-artifact@v4
+        with:
+          name: visor-stock-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
