@@ -36,7 +36,7 @@ jobs:
         run: npx cap sync android
 
       - name: Generar íconos desde resources/
-        run: npx capacitor-assets generate --iconBackgroundSource resources/icon-background-1024.png --iconForegroundSource resources/icon-foreground-1024.png
+        run: npx @capacitor/assets generate --android
 
       - name: Compilar APK (debug)
         run: |
