@@ -62,6 +62,12 @@
     .sin-datos { text-align: center; color: #888; padding: 40px 0; }
     .cambiar { text-align: center; margin-top: 15px; }
     .cambiar a { color: #667eea; font-size: 13px; cursor: pointer; text-decoration: underline; }
+    .selector-almacen { display: flex; gap: 8px; margin-bottom: 15px; }
+    .btn-almacen {
+        flex: 1; padding: 10px 8px; border: 2px solid #667eea; background: white; color: #667eea;
+        border-radius: 8px; font-size: 13px; font-weight: bold; cursor: pointer;
+    }
+    .btn-almacen.activo { background: #667eea; color: white; }
 
     @media (max-width: 480px) {
         body { padding: 5px; }
@@ -74,7 +80,6 @@
 </style>
 </head>
 <body>
-<div id="errorFatal" style="display:none; background:#c0392b; color:white; padding:16px; font-family:monospace; font-size:13px; white-space:pre-wrap; word-break:break-word;"></div>
 <div class="container">
     <div class="header">
         <h1>📦 Stock en Vivo</h1>
@@ -94,6 +99,10 @@
                 <button class="btn-refrescar" onclick="refrescarAhora()">🔄 Actualizar</button>
             </div>
             <input type="text" id="buscador" class="buscador" placeholder="🔍 Buscar producto o SKU..." oninput="renderizarTabla()">
+            <div id="selectorAlmacen" class="selector-almacen" style="display:none;">
+                <button type="button" class="btn-almacen activo" id="btnSelPunto" onclick="elegirAlmacen('productos')">🏬 Punto de Venta</button>
+                <button type="button" class="btn-almacen" id="btnSelPrincipal" onclick="elegirAlmacen('almacenPrincipal')">🏭 Almacén Principal</button>
+            </div>
             <div id="contenedorTabla"></div>
             <p id="actualizado" class="actualizado"></p>
             <div class="cambiar"><a onclick="cambiarConexion()">Conectar a otro inventario</a></div>
@@ -102,23 +111,6 @@
 </div>
 
 <script>
-    // Si algo revienta antes de dibujar la app, esto lo muestra en pantalla
-    // en vez de dejar la pantalla en blanco sin ninguna pista.
-    function mostrarErrorFatal(mensaje) {
-        const caja = document.getElementById('errorFatal');
-        if(!caja) return;
-        caja.style.display = 'block';
-        caja.textContent = '⚠️ Error: ' + mensaje;
-    }
-    window.addEventListener('error', function(e) {
-        mostrarErrorFatal((e.message || 'error desconocido') + (e.filename ? ' (' + e.filename + ':' + e.lineno + ')' : ''));
-    });
-    window.addEventListener('unhandledrejection', function(e) {
-        mostrarErrorFatal('promesa rechazada: ' + (e.reason && e.reason.message ? e.reason.message : e.reason));
-    });
-</script>
-<script>
-
     // URL por defecto: el JSON de stock que la app de inventario sube a GitHub.
     // Se puede cambiar desde "Conectar a otro inventario" si algún día cambia de repo.
     const URL_POR_DEFECTO = 'https://raw.githubusercontent.com/josecarlosfernandezhung-droid/inventario-datos-sync./main/stock.json';
@@ -130,6 +122,15 @@
     let urlActual = null;
     let ultimosDatos = null;
     let intervaloId = null;
+    let almacenSeleccionado = localStorage.getItem('visorAlmacenSeleccionado') || 'productos';
+
+    function elegirAlmacen(cual) {
+        almacenSeleccionado = cual;
+        localStorage.setItem('visorAlmacenSeleccionado', cual);
+        document.getElementById('btnSelPunto').classList.toggle('activo', cual === 'productos');
+        document.getElementById('btnSelPrincipal').classList.toggle('activo', cual === 'almacenPrincipal');
+        renderizarTabla();
+    }
 
     function guardarCache(datos) {
         try {
@@ -267,26 +268,48 @@
 
     function renderizarTabla() {
         const cont = document.getElementById('contenedorTabla');
-        if(!ultimosDatos || !ultimosDatos.productos || ultimosDatos.productos.length === 0) {
+        const selector = document.getElementById('selectorAlmacen');
+
+        const hayPrincipal = ultimosDatos && Array.isArray(ultimosDatos.almacenPrincipal) && ultimosDatos.almacenPrincipal.length > 0;
+        // El selector solo se muestra si de verdad hay datos del Almacén Principal sincronizados.
+        selector.style.display = hayPrincipal ? 'flex' : 'none';
+        document.getElementById('btnSelPunto').classList.toggle('activo', almacenSeleccionado === 'productos');
+        document.getElementById('btnSelPrincipal').classList.toggle('activo', almacenSeleccionado === 'almacenPrincipal');
+
+        const verAlmacenPrincipal = hayPrincipal && almacenSeleccionado === 'almacenPrincipal';
+
+        if(!ultimosDatos) {
             cont.innerHTML = '<p class="sin-datos">Todavía no hay datos sincronizados desde la app de inventario.</p>';
             return;
         }
+
         const filtro = (document.getElementById('buscador').value || '').trim().toLowerCase();
-        const productos = ultimosDatos.productos
-            .filter(p => p.stock > 0)
-            .filter(p => !filtro || p.nombre.toLowerCase().includes(filtro) || (p.sku || '').toLowerCase().includes(filtro))
-            .sort((a, b) => a.nombre.localeCompare(b.nombre));
+
+        let filas;
+        if(verAlmacenPrincipal) {
+            filas = (ultimosDatos.almacenPrincipal || [])
+                .filter(p => p.cantidad > 0)
+                .filter(p => !filtro || p.nombre.toLowerCase().includes(filtro) || (p.sku || '').toLowerCase().includes(filtro))
+                .sort((a, b) => a.nombre.localeCompare(b.nombre));
+        } else {
+            filas = (ultimosDatos.productos || [])
+                .filter(p => p.stock > 0)
+                .filter(p => !filtro || p.nombre.toLowerCase().includes(filtro) || (p.sku || '').toLowerCase().includes(filtro))
+                .sort((a, b) => a.nombre.localeCompare(b.nombre));
+        }
 
         let html;
-        if(productos.length === 0) {
+        if(filas.length === 0) {
             html = filtro
                 ? '<p class="sin-datos">Ningún producto disponible coincide con la búsqueda.</p>'
                 : '<p class="sin-datos">No hay productos con existencia en este momento.</p>';
         } else {
             html = '<table><thead><tr><th>Producto</th><th>SKU</th><th>Stock</th></tr></thead><tbody>';
-            productos.forEach(p => {
-                const claseStock = p.stock <= 10 ? 'stock-bajo' : 'stock-ok';
-                html += `<tr><td>${p.nombre}</td><td>${p.sku || '-'}</td><td class="${claseStock}">${p.stock} ${p.unidad || ''}</td></tr>`;
+            filas.forEach(p => {
+                const cantidad = verAlmacenPrincipal ? p.cantidad : p.stock;
+                const unidad = verAlmacenPrincipal ? '' : (p.unidad || '');
+                const claseStock = cantidad <= 10 ? 'stock-bajo' : 'stock-ok';
+                html += `<tr><td>${p.nombre}</td><td>${p.sku || '-'}</td><td class="${claseStock}">${cantidad} ${unidad}</td></tr>`;
             });
             html += '</tbody></table>';
         }
