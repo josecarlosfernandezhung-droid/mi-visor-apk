@@ -99,10 +99,7 @@
                 <button class="btn-refrescar" onclick="refrescarAhora()">🔄 Actualizar</button>
             </div>
             <input type="text" id="buscador" class="buscador" placeholder="🔍 Buscar producto o SKU..." oninput="renderizarTabla()">
-            <div id="selectorAlmacen" class="selector-almacen" style="display:none;">
-                <button type="button" class="btn-almacen activo" id="btnSelPunto" onclick="elegirAlmacen('productos')">🏬 Punto de Venta</button>
-                <button type="button" class="btn-almacen" id="btnSelPrincipal" onclick="elegirAlmacen('almacenPrincipal')">🏭 Almacén Principal</button>
-            </div>
+            <div id="selectorAlmacen" class="selector-almacen" style="display:none; flex-wrap:wrap;"></div>
             <div id="contenedorTabla"></div>
             <p id="actualizado" class="actualizado"></p>
             <div class="cambiar"><a onclick="cambiarConexion()">Conectar a otro inventario</a></div>
@@ -124,11 +121,55 @@
     let intervaloId = null;
     let almacenSeleccionado = localStorage.getItem('visorAlmacenSeleccionado') || 'productos';
 
+    // Arma la lista de "vistas" (almacenes) disponibles a partir de lo que venga en el
+    // JSON: Punto de Venta y Almacén Principal (como antes), más Piso de Venta y
+    // cualquier almacén adicional que José haya creado en la app — todos con la misma
+    // forma { id, icono, nombre, items, campoCantidad }, para que el resto del código
+    // no tenga que distinguirlos.
+    function construirVistasDisponibles() {
+        const vistas = [];
+        if(!ultimosDatos) return vistas;
+
+        if(Array.isArray(ultimosDatos.productos) && ultimosDatos.productos.length > 0) {
+            vistas.push({ id: 'productos', icono: '🏬', nombre: 'Punto de Venta', items: ultimosDatos.productos, campoCantidad: 'stock' });
+        }
+        if(Array.isArray(ultimosDatos.almacenPrincipal) && ultimosDatos.almacenPrincipal.length > 0) {
+            vistas.push({ id: 'almacenPrincipal', icono: '🏭', nombre: 'Almacén Principal', items: ultimosDatos.almacenPrincipal, campoCantidad: 'cantidad' });
+        }
+        if(Array.isArray(ultimosDatos.pisoVenta) && ultimosDatos.pisoVenta.length > 0) {
+            vistas.push({ id: 'pisoVenta', icono: '🧍', nombre: 'Piso de Venta', items: ultimosDatos.pisoVenta, campoCantidad: 'cantidad' });
+        }
+        if(Array.isArray(ultimosDatos.almacenesExtra)) {
+            ultimosDatos.almacenesExtra.forEach(a => {
+                if(Array.isArray(a.productos) && a.productos.length > 0) {
+                    vistas.push({ id: 'extra_' + a.id, icono: a.icono || '📦', nombre: a.nombre, items: a.productos, campoCantidad: 'cantidad' });
+                }
+            });
+        }
+        return vistas;
+    }
+
+    function renderizarSelectorAlmacen(vistas) {
+        const selector = document.getElementById('selectorAlmacen');
+        if(vistas.length <= 1) {
+            selector.style.display = 'none';
+            selector.innerHTML = '';
+            return;
+        }
+        // Si el almacén guardado ya no existe en los datos actuales (por ejemplo, se
+        // eliminó desde la app), se cae de vuelta al primero disponible.
+        if(!vistas.some(v => v.id === almacenSeleccionado)) {
+            almacenSeleccionado = vistas[0].id;
+        }
+        selector.style.display = 'flex';
+        selector.innerHTML = vistas.map(v => `
+            <button type="button" class="btn-almacen ${v.id === almacenSeleccionado ? 'activo' : ''}" onclick="elegirAlmacen('${v.id}')">${v.icono} ${v.nombre}</button>
+        `).join('');
+    }
+
     function elegirAlmacen(cual) {
         almacenSeleccionado = cual;
         localStorage.setItem('visorAlmacenSeleccionado', cual);
-        document.getElementById('btnSelPunto').classList.toggle('activo', cual === 'productos');
-        document.getElementById('btnSelPrincipal').classList.toggle('activo', cual === 'almacenPrincipal');
         renderizarTabla();
     }
 
@@ -268,46 +309,41 @@
 
     function renderizarTabla() {
         const cont = document.getElementById('contenedorTabla');
-        const selector = document.getElementById('selectorAlmacen');
-
-        const hayPrincipal = ultimosDatos && Array.isArray(ultimosDatos.almacenPrincipal) && ultimosDatos.almacenPrincipal.length > 0;
-        // El selector solo se muestra si de verdad hay datos del Almacén Principal sincronizados.
-        selector.style.display = hayPrincipal ? 'flex' : 'none';
-        document.getElementById('btnSelPunto').classList.toggle('activo', almacenSeleccionado === 'productos');
-        document.getElementById('btnSelPrincipal').classList.toggle('activo', almacenSeleccionado === 'almacenPrincipal');
-
-        const verAlmacenPrincipal = hayPrincipal && almacenSeleccionado === 'almacenPrincipal';
 
         if(!ultimosDatos) {
+            document.getElementById('selectorAlmacen').style.display = 'none';
             cont.innerHTML = '<p class="sin-datos">Todavía no hay datos sincronizados desde la app de inventario.</p>';
             return;
         }
 
+        const vistas = construirVistasDisponibles();
+        renderizarSelectorAlmacen(vistas);
+
+        const vistaActual = vistas.find(v => v.id === almacenSeleccionado) || vistas[0];
+
         const filtro = (document.getElementById('buscador').value || '').trim().toLowerCase();
 
-        let filas;
-        if(verAlmacenPrincipal) {
-            filas = (ultimosDatos.almacenPrincipal || [])
-                .filter(p => p.cantidad > 0)
-                .filter(p => !filtro || p.nombre.toLowerCase().includes(filtro) || (p.sku || '').toLowerCase().includes(filtro))
-                .sort((a, b) => a.nombre.localeCompare(b.nombre));
-        } else {
-            filas = (ultimosDatos.productos || [])
-                .filter(p => p.stock > 0)
+        let filas = [];
+        if(vistaActual) {
+            const campo = vistaActual.campoCantidad;
+            filas = vistaActual.items
+                .filter(p => (p[campo] || 0) > 0)
                 .filter(p => !filtro || p.nombre.toLowerCase().includes(filtro) || (p.sku || '').toLowerCase().includes(filtro))
                 .sort((a, b) => a.nombre.localeCompare(b.nombre));
         }
 
         let html;
-        if(filas.length === 0) {
+        if(!vistaActual) {
+            html = '<p class="sin-datos">Todavía no hay datos sincronizados desde la app de inventario.</p>';
+        } else if(filas.length === 0) {
             html = filtro
                 ? '<p class="sin-datos">Ningún producto disponible coincide con la búsqueda.</p>'
                 : '<p class="sin-datos">No hay productos con existencia en este momento.</p>';
         } else {
             html = '<table><thead><tr><th>Producto</th><th>SKU</th><th>Stock</th></tr></thead><tbody>';
             filas.forEach(p => {
-                const cantidad = verAlmacenPrincipal ? p.cantidad : p.stock;
-                const unidad = verAlmacenPrincipal ? '' : (p.unidad || '');
+                const cantidad = p[vistaActual.campoCantidad];
+                const unidad = vistaActual.campoCantidad === 'stock' ? (p.unidad || '') : '';
                 const claseStock = cantidad <= 10 ? 'stock-bajo' : 'stock-ok';
                 html += `<tr><td>${p.nombre}</td><td>${p.sku || '-'}</td><td class="${claseStock}">${cantidad} ${unidad}</td></tr>`;
             });
