@@ -56,6 +56,21 @@
         width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px;
         margin-bottom: 15px; font-size: 14px;
     }
+    .fila-orden-urgencia {
+        display: flex; align-items: center; justify-content: space-between; gap: 10px;
+        margin-bottom: 15px; font-size: 13px; color: #444;
+    }
+    .fila-orden-urgencia label { flex: 1; }
+    .toggle-switch {
+        position: relative; width: 44px; height: 24px; flex: 0 0 auto;
+        border-radius: 999px; border: none; background: #ccc; cursor: pointer; padding: 0;
+    }
+    .toggle-switch .toggle-switch-thumb {
+        position: absolute; top: 2px; left: 2px; width: 20px; height: 20px;
+        border-radius: 50%; background: white; transition: left 0.15s ease;
+    }
+    .toggle-switch.on { background: #667eea; }
+    .toggle-switch.on .toggle-switch-thumb { left: 22px; }
     table { width: 100%; border-collapse: collapse; table-layout: fixed; }
     th, td { padding: 10px; border-bottom: 1px solid #eee; text-align: left; font-size: 14px; word-break: break-word; }
     th { background: #f5f5f5; position: sticky; top: 0; }
@@ -108,6 +123,12 @@
             </div>
             <input type="text" id="buscador" class="buscador" placeholder="🔍 Buscar producto o SKU..." oninput="renderizarTabla()">
             <div id="selectorAlmacen" class="selector-almacen" style="display:none;"></div>
+            <div id="filaOrdenUrgencia" class="fila-orden-urgencia" style="display:none;">
+                <label for="btnOrdenUrgenciaVisor">⚠️ Ordenar por urgencia (lo que menos hay primero)</label>
+                <button type="button" class="toggle-switch" id="btnOrdenUrgenciaVisor" onclick="alternarOrdenUrgenciaVisor()" role="switch" aria-checked="false">
+                    <span class="toggle-switch-thumb"></span>
+                </button>
+            </div>
             <div id="contenedorTabla"></div>
             <p id="actualizado" class="actualizado"></p>
             <div class="cambiar"><a onclick="cambiarConexion()">Conectar a otro inventario</a></div>
@@ -138,19 +159,24 @@
         const vistas = [];
         if(!ultimosDatos) return vistas;
 
+        // Nombres a medida que José haya puesto desde el Gestor (opcional); si no hay
+        // apodo para un id, se usa el nombre de siempre.
+        const etiquetas = ultimosDatos.etiquetas || {};
+        const nombrePara = (id, porDefecto) => (etiquetas[id] && etiquetas[id].trim()) ? etiquetas[id].trim() : porDefecto;
+
         if(Array.isArray(ultimosDatos.productos) && ultimosDatos.productos.length > 0) {
-            vistas.push({ id: 'productos', icono: '🏬', nombre: 'Punto de Venta', items: ultimosDatos.productos, campoCantidad: 'stock' });
+            vistas.push({ id: 'productos', icono: '🏬', nombre: nombrePara('productos', 'Punto de Venta'), items: ultimosDatos.productos, campoCantidad: 'stock' });
         }
         if(Array.isArray(ultimosDatos.almacenPrincipal) && ultimosDatos.almacenPrincipal.length > 0) {
-            vistas.push({ id: 'almacenPrincipal', icono: '🏭', nombre: 'Almacén Principal', items: ultimosDatos.almacenPrincipal, campoCantidad: 'cantidad' });
+            vistas.push({ id: 'almacenPrincipal', icono: '🏭', nombre: nombrePara('almacenPrincipal', 'Almacén Principal'), items: ultimosDatos.almacenPrincipal, campoCantidad: 'cantidad' });
         }
         if(Array.isArray(ultimosDatos.pisoVenta) && ultimosDatos.pisoVenta.length > 0) {
-            vistas.push({ id: 'pisoVenta', icono: '🧍', nombre: 'Piso de Venta', items: ultimosDatos.pisoVenta, campoCantidad: 'cantidad' });
+            vistas.push({ id: 'pisoVenta', icono: '🧍', nombre: nombrePara('pisoVenta', 'Piso de Venta'), items: ultimosDatos.pisoVenta, campoCantidad: 'cantidad' });
         }
         if(Array.isArray(ultimosDatos.almacenesExtra)) {
             ultimosDatos.almacenesExtra.forEach(a => {
                 if(Array.isArray(a.productos) && a.productos.length > 0) {
-                    vistas.push({ id: 'extra_' + a.id, icono: a.icono || '📦', nombre: a.nombre, items: a.productos, campoCantidad: 'cantidad' });
+                    vistas.push({ id: 'extra_' + a.id, icono: a.icono || '📦', nombre: nombrePara('extra_' + a.id, a.nombre), items: a.productos, campoCantidad: 'cantidad' });
                 }
             });
         }
@@ -199,6 +225,12 @@
     function elegirAlmacen(cual) {
         almacenSeleccionado = cual;
         localStorage.setItem('visorAlmacenSeleccionado', cual);
+        renderizarTabla();
+    }
+
+    function alternarOrdenUrgenciaVisor() {
+        const activo = localStorage.getItem('visorOrdenUrgencia') === '1';
+        localStorage.setItem('visorOrdenUrgencia', activo ? '0' : '1');
         renderizarTabla();
     }
 
@@ -338,9 +370,12 @@
 
     function renderizarTabla() {
         const cont = document.getElementById('contenedorTabla');
+        const filaOrden = document.getElementById('filaOrdenUrgencia');
+        const btnOrden = document.getElementById('btnOrdenUrgenciaVisor');
 
         if(!ultimosDatos) {
             document.getElementById('selectorAlmacen').style.display = 'none';
+            if(filaOrden) filaOrden.style.display = 'none';
             cont.innerHTML = '<p class="sin-datos">Todavía no hay datos sincronizados desde la app de inventario.</p>';
             return;
         }
@@ -350,6 +385,13 @@
 
         const vistaActual = vistas.find(v => v.id === almacenSeleccionado) || vistas[0];
 
+        if(filaOrden) filaOrden.style.display = vistaActual ? 'flex' : 'none';
+        const ordenUrgencia = localStorage.getItem('visorOrdenUrgencia') === '1';
+        if(btnOrden) {
+            btnOrden.classList.toggle('on', ordenUrgencia);
+            btnOrden.setAttribute('aria-checked', String(ordenUrgencia));
+        }
+
         const filtro = (document.getElementById('buscador').value || '').trim().toLowerCase();
 
         let filas = [];
@@ -357,8 +399,14 @@
             const campo = vistaActual.campoCantidad;
             filas = vistaActual.items
                 .filter(p => (p[campo] || 0) > 0)
-                .filter(p => !filtro || p.nombre.toLowerCase().includes(filtro) || (p.sku || '').toLowerCase().includes(filtro))
-                .sort((a, b) => a.nombre.localeCompare(b.nombre));
+                .filter(p => !filtro || p.nombre.toLowerCase().includes(filtro) || (p.sku || '').toLowerCase().includes(filtro));
+
+            if(ordenUrgencia) {
+                // Lo que menos hay primero (más urgente de reponer).
+                filas.sort((a, b) => (a[campo] || 0) - (b[campo] || 0) || a.nombre.localeCompare(b.nombre));
+            } else {
+                filas.sort((a, b) => a.nombre.localeCompare(b.nombre));
+            }
         }
 
         let html;
