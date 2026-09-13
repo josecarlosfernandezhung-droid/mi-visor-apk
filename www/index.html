@@ -121,7 +121,7 @@
                 <p id="estado" class="estado">🟡 Cargando...</p>
                 <button class="btn-refrescar" onclick="refrescarAhora()">🔄 Actualizar</button>
             </div>
-            <input type="text" id="buscador" class="buscador" placeholder="🔍 Buscar producto o SKU..." oninput="renderizarTabla()">
+            <input type="text" id="buscador" class="buscador" placeholder="🔍 Buscar producto, SKU o ubicación..." oninput="renderizarTabla()">
             <div id="selectorAlmacen" class="selector-almacen" style="display:none;"></div>
             <div id="filaOrdenUrgencia" class="fila-orden-urgencia" style="display:none;">
                 <label for="btnOrdenUrgenciaVisor">⚠️ Ordenar por urgencia (lo que menos hay primero)</label>
@@ -399,7 +399,7 @@
             const campo = vistaActual.campoCantidad;
             filas = vistaActual.items
                 .filter(p => (p[campo] || 0) > 0)
-                .filter(p => !filtro || p.nombre.toLowerCase().includes(filtro) || (p.sku || '').toLowerCase().includes(filtro));
+                .filter(p => !filtro || p.nombre.toLowerCase().includes(filtro) || (p.sku || '').toLowerCase().includes(filtro) || (p.ubicacion || '').toLowerCase().includes(filtro));
 
             if(ordenUrgencia) {
                 // Lo que menos hay primero (más urgente de reponer).
@@ -417,12 +417,17 @@
                 ? '<p class="sin-datos">Ningún producto disponible coincide con la búsqueda.</p>'
                 : '<p class="sin-datos">No hay productos con existencia en este momento.</p>';
         } else {
-            html = '<table><thead><tr><th>Producto</th><th>SKU</th><th>Stock</th></tr></thead><tbody>';
+            // La columna Ubicación solo aparece si al menos un producto de esta vista
+            // tiene ese dato (por ahora solo llega desde la pestaña "Productos" del
+            // Gestor); así no queda una columna vacía en Almacén Principal, Piso de
+            // Venta, etc., que todavía no manejan ubicación.
+            const hayUbicacion = filas.some(p => (p.ubicacion || '').trim());
+            html = `<table><thead><tr><th>Producto</th><th>SKU</th>${hayUbicacion ? '<th>Ubicación</th>' : ''}<th>Stock</th></tr></thead><tbody>`;
             filas.forEach(p => {
                 const cantidad = p[vistaActual.campoCantidad];
                 const unidad = vistaActual.campoCantidad === 'stock' ? (p.unidad || '') : '';
                 const claseStock = cantidad <= 10 ? 'stock-bajo' : 'stock-ok';
-                html += `<tr><td>${p.nombre}</td><td>${p.sku || '-'}</td><td class="${claseStock}">${cantidad} ${unidad}</td></tr>`;
+                html += `<tr><td>${p.nombre}</td><td>${p.sku || '-'}</td>${hayUbicacion ? `<td>${p.ubicacion || '-'}</td>` : ''}<td class="${claseStock}">${cantidad} ${unidad}</td></tr>`;
             });
             html += '</tbody></table>';
         }
