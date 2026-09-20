@@ -129,6 +129,12 @@
                     <span class="toggle-switch-thumb"></span>
                 </button>
             </div>
+            <div id="filaAgotados" class="fila-orden-urgencia" style="display:none;">
+                <label for="btnAgotadosVisor">🚫 Ver lo que ya no hay (agotados)</label>
+                <button type="button" class="toggle-switch" id="btnAgotadosVisor" onclick="alternarAgotadosVisor()" role="switch" aria-checked="false">
+                    <span class="toggle-switch-thumb"></span>
+                </button>
+            </div>
             <div id="contenedorTabla"></div>
             <p id="actualizado" class="actualizado"></p>
             <div class="cambiar"><a onclick="cambiarConexion()">Conectar a otro inventario</a></div>
@@ -225,6 +231,16 @@
     function elegirAlmacen(cual) {
         almacenSeleccionado = cual;
         localStorage.setItem('visorAlmacenSeleccionado', cual);
+        renderizarTabla();
+    }
+
+    // Solo aplica en las vistas "Piso de Venta" y "Todo"; en los demás almacenes el
+    // interruptor ni aparece y la lista sigue mostrando solo lo que tiene existencia.
+    let verAgotadosVisor = false;
+    const VISTAS_CON_AGOTADOS = ['pisoVenta', 'todo'];
+
+    function alternarAgotadosVisor() {
+        verAgotadosVisor = !verAgotadosVisor;
         renderizarTabla();
     }
 
@@ -376,6 +392,7 @@
         if(!ultimosDatos) {
             document.getElementById('selectorAlmacen').style.display = 'none';
             if(filaOrden) filaOrden.style.display = 'none';
+            document.getElementById('filaAgotados').style.display = 'none';
             cont.innerHTML = '<p class="sin-datos">Todavía no hay datos sincronizados desde la app de inventario.</p>';
             return;
         }
@@ -392,13 +409,21 @@
             btnOrden.setAttribute('aria-checked', String(ordenUrgencia));
         }
 
+        const puedeVerAgotados = !!vistaActual && VISTAS_CON_AGOTADOS.includes(vistaActual.id);
+        const verAgotados = puedeVerAgotados && verAgotadosVisor;
+        const filaAgotados = document.getElementById('filaAgotados');
+        const btnAgotados = document.getElementById('btnAgotadosVisor');
+        filaAgotados.style.display = puedeVerAgotados ? 'flex' : 'none';
+        btnAgotados.classList.toggle('on', verAgotados);
+        btnAgotados.setAttribute('aria-checked', String(verAgotados));
+
         const filtro = (document.getElementById('buscador').value || '').trim().toLowerCase();
 
         let filas = [];
         if(vistaActual) {
             const campo = vistaActual.campoCantidad;
             filas = vistaActual.items
-                .filter(p => (p[campo] || 0) > 0)
+                .filter(p => verAgotados ? (parseFloat(p[campo]) || 0) <= 0 : (p[campo] || 0) > 0)
                 .filter(p => !filtro || p.nombre.toLowerCase().includes(filtro) || (p.sku || '').toLowerCase().includes(filtro) || (p.ubicacion || '').toLowerCase().includes(filtro));
 
             if(ordenUrgencia) {
@@ -413,9 +438,13 @@
         if(!vistaActual) {
             html = '<p class="sin-datos">Todavía no hay datos sincronizados desde la app de inventario.</p>';
         } else if(filas.length === 0) {
-            html = filtro
-                ? '<p class="sin-datos">Ningún producto disponible coincide con la búsqueda.</p>'
-                : '<p class="sin-datos">No hay productos con existencia en este momento.</p>';
+            html = verAgotados
+                ? (filtro
+                    ? '<p class="sin-datos">Ningún producto agotado coincide con la búsqueda.</p>'
+                    : '<p class="sin-datos">No hay productos agotados en este momento.</p>')
+                : (filtro
+                    ? '<p class="sin-datos">Ningún producto disponible coincide con la búsqueda.</p>'
+                    : '<p class="sin-datos">No hay productos con existencia en este momento.</p>');
         } else {
             // La columna Ubicación solo aparece si al menos un producto de esta vista
             // tiene ese dato (por ahora solo llega desde la pestaña "Productos" del
