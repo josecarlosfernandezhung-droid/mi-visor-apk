@@ -111,7 +111,7 @@
     <div class="body">
         <div id="setup" class="setup" style="display:none;">
             <label for="urlInput">Pega la URL del archivo JSON de tu inventario en GitHub (raw.githubusercontent.com)</label>
-            <input type="text" id="urlInput" placeholder="https://raw.githubusercontent.com/usuario/repo/main/stock.json">
+            <input type="text" id="urlInput" placeholder="https://raw.githubusercontent.com/usuario/repo/main/respaldo.json">
             <button class="btn" onclick="conectar()">🔌 Conectar</button>
             <div id="mensajeSetup" style="margin-top:10px;"></div>
         </div>
@@ -145,11 +145,11 @@
 <script>
     // URL por defecto: el JSON de stock que la app de inventario sube a GitHub.
     // Se puede cambiar desde "Conectar a otro inventario" si algún día cambia de repo.
-    const URL_POR_DEFECTO = 'https://raw.githubusercontent.com/josecarlosfernandezhung-droid/inventario-datos-sync./main/stock.json';
+    const URL_POR_DEFECTO = 'https://raw.githubusercontent.com/josecarlosfernandezhung-droid/inventario-datos-sync./main/respaldo.json';
 
     const CACHE_KEY = 'visorStockCache';
     const URL_KEY = 'visorStockGithubUrl';
-    const INTERVALO_REFRESCO_MS = 30000; // 30s — de sobra, GitHub cachea el raw ~1-5min igual
+    const INTERVALO_REFRESCO_MS = 15000; // 15s; cada consulta lleva un parámetro único para saltarse el caché de GitHub
 
     let urlActual = null;
     let ultimosDatos = null;
@@ -263,14 +263,38 @@
         } catch(e) { return null; }
     }
 
+    // El Gestor ya no sube stock.json: ahora sube respaldo.json (con un bloque "visor"
+    // ya calculado). Si este navegador tenía guardada la URL vieja, se cambia sola.
+    function migrarUrl(u) {
+        return (u && /\/stock\.json(\?.*)?$/.test(u)) ? u.replace(/\/stock\.json(\?.*)?$/, '/respaldo.json') : u;
+    }
+
+    // Convierte lo que venga en el JSON a la forma que usa el visor. Si trae el bloque
+    // "visor" (Gestor nuevo), el stock del Punto de Venta y el Piso de Venta salen de ahí.
+    function normalizarDatos(json) {
+        if(json && json.visor) {
+            return {
+                productos: json.visor.productos || [],
+                pisoVenta: json.visor.pisoVenta || [],
+                almacenPrincipal: json.almacenPrincipal || [],
+                almacenesExtra: json.almacenesExtra || [],
+                etiquetas: json.etiquetas,
+                actualizado: json.actualizado
+            };
+        }
+        return json;
+    }
+
     window.addEventListener('DOMContentLoaded', function() {
         // Prioridad: URL en el hash (#url-encoded) > URL guardada > la de por defecto
         const hash = window.location.hash.replace('#', '');
-        const guardada = localStorage.getItem(URL_KEY);
+        const guardadaRaw = localStorage.getItem(URL_KEY);
+        const guardada = migrarUrl(guardadaRaw);
+        if(guardada !== guardadaRaw) localStorage.setItem(URL_KEY, guardada);
 
         if(hash) {
             try {
-                const decodificada = decodeURIComponent(hash);
+                const decodificada = migrarUrl(decodeURIComponent(hash));
                 iniciarConexion(decodificada);
             } catch(e) {
                 iniciarConexion(guardada || URL_POR_DEFECTO);
@@ -358,7 +382,7 @@
                 return;
             }
 
-            const datos = await respuesta.json();
+            const datos = normalizarDatos(await respuesta.json());
             ultimosDatos = datos;
             guardarCache(datos);
             document.getElementById('estado').textContent = '🟢 Conectado — datos actualizados';
