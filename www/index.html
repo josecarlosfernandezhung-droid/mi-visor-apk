@@ -276,11 +276,17 @@
             return {
                 productos: json.visor.productos || [],
                 pisoVenta: json.visor.pisoVenta || [],
-                almacenPrincipal: json.almacenPrincipal || [],
-                almacenesExtra: json.almacenesExtra || [],
-                etiquetas: json.etiquetas,
+                almacenPrincipal: json.visor.almacenPrincipal || [],
+                almacenesExtra: json.visor.almacenesExtra || [],
+                etiquetas: json.visor.etiquetas || {},
                 actualizado: json.actualizado
             };
+        }
+        // Respaldo viejo (sin bloque "visor"): el catálogo no trae el stock calculado,
+        // así que Punto de Venta no se muestra (saldría todo en cero) hasta que el
+        // Gestor actualizado sincronice. Los demás almacenes sí se ven.
+        if(json && Array.isArray(json.productos)) {
+            return { ...json, productos: json.productos.filter(p => p.stock !== undefined) };
         }
         return json;
     }
